@@ -60,16 +60,24 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def _startup() -> None:
+        import asyncio
         logger.info(
             "Service starting | model={} | csv={}",
             settings.primary_llm_model,
             settings.data_csv_path,
         )
-        # Pre-warm DataFrame + derived caches so first query is not cold
+        # Run heavy init in the background so uvicorn can bind immediately.
+        asyncio.create_task(_background_init(app))
+
+    async def _background_init(app) -> None:
+        import asyncio
+        loop = asyncio.get_event_loop()
+
+        # Pre-warm DataFrame (CPU-bound — run in thread pool)
         try:
             from app.services.analytics import get_df
-            get_df()
-            logger.info("DataFrame pre-warmed at startup.")
+            await loop.run_in_executor(None, get_df)
+            logger.info("DataFrame pre-warmed.")
         except Exception as exc:
             logger.warning("DataFrame pre-warm failed: {}", exc)
 
@@ -81,10 +89,11 @@ def create_app() -> FastAPI:
             scheduler = BackgroundScheduler()
             scheduler.add_job(scan_and_alert, "interval", minutes=15, id="alert_scan")
             scheduler.start()
-            # Run an initial scan immediately so alerts are populated on first launch
-            scan_and_alert()
             app.state.scheduler = scheduler
             logger.info("APScheduler started — alert scans every 15 minutes.")
+            # Initial scan in executor so it doesn't block
+            await loop.run_in_executor(None, scan_and_alert)
+            logger.info("Initial alert scan complete.")
         except ImportError:
             logger.warning("apscheduler not installed — proactive alerting disabled.")
 
