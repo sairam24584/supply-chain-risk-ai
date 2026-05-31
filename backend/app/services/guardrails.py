@@ -46,6 +46,13 @@ _DOMAIN_VOCAB = {
     "location", "locations", "region", "regions", "department", "departments",
     "transportation", "data", "overview", "supply", "chain", "operations",
     "performance", "cost", "costs", "revenue", "price", "analysis",
+    # action / recommendation terms
+    "mitigation", "mitigate", "recommend", "recommendation", "action", "plan",
+    "reduce", "improve", "optimize", "resolve", "address", "fix",
+    # contextual/conversational operational terms
+    "issue", "issues", "problem", "problems", "concern", "concerns",
+    "urgent", "critical", "status", "health", "situation", "summary",
+    "overview", "today", "focus", "happening", "update", "alert", "alerts",
 }
 
 # Threshold below which we consider the query likely out-of-scope.
@@ -106,11 +113,17 @@ def check_input(query: str) -> GuardResult:
     q, pii_hits = _redact(q)
     violations.extend(pii_hits)
 
-    # Block "what is supply and demand" style general-knowledge definitions,
-    # but allow operational queries that reference specific entities ("for Supplier X",
-    # "for SKU", "our", "my", "this week", etc.)
+    # Block pure general-knowledge definition queries ("what is blockchain?",
+    # "what is supply and demand?") but allow any query that references supply
+    # chain operational concepts ("explain the shipment delays", "define stockout
+    # risk in our data", "what does defect rate mean?").
     _ENTITY_REF_RE = re.compile(
-        r"\b(for\s+[A-Z]|our\b|my\b|this\b|current\b|SKU\d|[Ss]upplier\s+\d)", re.I
+        r"\b(for\s+[A-Z]|current\s+\w|this\s+(week|month|quarter)\b|SKU\d|[Ss]upplier\s+\d|"
+        r"supplier|suppliers|inventory|shipment|shipments|carrier|carriers|"
+        r"route|routes|defect|stockout|overstock|delay|delays|sku|skus|"
+        r"risk|quality|logistics|supply\s+chain|warehouse|procurement|"
+        r"freight|transport|fulfillment|anomaly|disruption)\b",
+        re.I,
     )
     if _GENERAL_KNOWLEDGE_RE.match(q) and not _ENTITY_REF_RE.search(q):
         violations.append("out_of_scope")

@@ -52,6 +52,29 @@ _GREETING_REPLY = (
     "• \"Recommend a mitigation plan for our highest severity incidents.\""
 )
 
+# ── Domain-concept short-circuit ──────────────────────────────────────────────
+# Handles "what is supply chain risk analysis?" / "what is SCM?" style questions
+# that ask about the assistant's own domain — give a helpful explanation rather
+# than blocking them as out-of-scope.
+_SCM_CONCEPT_RE = re.compile(
+    r"^\s*what\s+is\s+(supply\s+chain|scm|supply-chain|"
+    r"risk\s+(analysis|intelligence|management)|"
+    r"demand\s+(planning|forecast)|logistics\s+risk|"
+    r"procurement\s+risk|inventory\s+risk|shipment\s+risk)\b",
+    re.IGNORECASE,
+)
+_SCM_CONCEPT_REPLY = (
+    "Supply chain risk analysis is the process of identifying, assessing, and "
+    "mitigating risks across the end-to-end supply chain — from raw material "
+    "sourcing through delivery to the end customer.\n\n"
+    "This assistant focuses on three risk domains from your operational data:\n"
+    "• Supplier quality risk — defect rates, failed inspections, concentration risk\n"
+    "• Shipment & logistics risk — carrier delays, route hotspots, lead time breaches\n"
+    "• Inventory risk — stockout exposure, overstock, days-to-stockout\n\n"
+    "Try asking: \"Which suppliers have the highest defect rates?\" or "
+    "\"Which SKUs are at stockout risk this week?\""
+)
+
 # ── Out-of-scope friendly response ────────────────────────────────────────────
 _OUT_OF_SCOPE_REPLY = (
     "I'm focused on supply chain risk analysis — I can help with questions about "
@@ -70,7 +93,8 @@ _DATA_LOOKUPS = [
     # Explicit listing only — NOT "which suppliers have highest defect rates"
     (re.compile(r"\b(list|show|give)\b.*\b(supplier|suppliers)\b"
                 r"|\b(supplier|suppliers)\b.*\b(list|all|available|network)\b"
-                r"|\bwhat\s+suppliers\b|\ball\s+suppliers\b", re.I),
+                r"|\bwhat\s+suppliers\b|\ball\s+suppliers\b"
+                r"|\bwho\s+are\s+(the\s+)?(supplier|suppliers)\b", re.I),
      "Supplier name", "suppliers"),
     (re.compile(r"\b(carrier|carriers|transport vendor|transport vendors|shipping vendor|shipping vendors)\b", re.I),
      "Shipping carriers", "shipping carriers / transport vendors"),
@@ -135,7 +159,7 @@ def _try_data_lookup(query: str) -> str | None:
         return None
 
     # Must look like a listing/enumeration question
-    if not re.search(r"\b(what|which|list|show|give|tell|all|how many|any|there)\b", q):
+    if not re.search(r"\b(what|which|who|list|show|give|tell|all|how many|any|there)\b", q):
         return None
 
     df = get_df()
@@ -146,6 +170,33 @@ def _try_data_lookup(query: str) -> str | None:
             values = sorted(df[column].dropna().unique().tolist())
             if not values:
                 return f"No {label} found in the current dataset."
+
+            # For SKUs: too many to list — group by product type instead
+            if column == "SKU" and len(values) > 15:
+                if "Product type" in df.columns:
+                    by_type = (
+                        df.groupby("Product type")["SKU"]
+                        .nunique()
+                        .sort_values(ascending=False)
+                    )
+                    lines = [
+                        f"The dataset contains {len(values)} SKUs across "
+                        f"{len(by_type)} product categories:\n"
+                    ]
+                    for ptype, count in by_type.items():
+                        examples = sorted(
+                            df[df["Product type"] == ptype]["SKU"].dropna().unique().tolist()
+                        )[:3]
+                        lines.append(
+                            f"• {ptype}: {count} SKUs "
+                            f"(e.g. {', '.join(examples)})"
+                        )
+                    lines.append(
+                        "\nAsk me about specific SKUs or product categories "
+                        "to see risk details."
+                    )
+                    return "\n".join(lines)
+
             formatted = ", ".join(str(v) for v in values)
             return (
                 f"The following {label} are present in our supply chain dataset "
@@ -210,6 +261,15 @@ async def query(payload: QueryRequest) -> QueryResponse:
         return QueryResponse(
             answer=_GREETING_REPLY,
             agents_invoked=["greeting-handler"],
+            cache_hit=False,
+            thread_id=payload.thread_id,
+        )
+
+    # --- SCM domain-concept short-circuit ---
+    if _SCM_CONCEPT_RE.match(payload.query.strip()):
+        return QueryResponse(
+            answer=_SCM_CONCEPT_REPLY,
+            agents_invoked=["concept-handler"],
             cache_hit=False,
             thread_id=payload.thread_id,
         )
