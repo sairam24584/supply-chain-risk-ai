@@ -3,7 +3,7 @@ import axios from "axios";
 // Same-origin: vite proxies /api/* to FastAPI in dev; in prod set VITE_API_BASE.
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE || "",
-  timeout: 60000,
+  timeout: 120000,  // 2 min — allows for Render free tier cold-start (~30-60s)
 });
 
 api.interceptors.response.use(

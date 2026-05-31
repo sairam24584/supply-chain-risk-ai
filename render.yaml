@@ -45,7 +45,7 @@ services:
     pullRequestPreviewsEnabled: false
     envVars:
       - key: VITE_API_BASE
-        value: https://supply-chain-risk-ai-backend.onrender.com
+        value: https://backend-supply-chain-risk-ai.onrender.com
     routes:
       - type: rewrite
         source: /*
