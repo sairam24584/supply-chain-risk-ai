@@ -28,10 +28,21 @@ def create_app() -> FastAPI:
         description="Multi-agent RAG for supply chain risk analysis.",
     )
 
-    # CORS for the React frontend (dev: localhost:5173)
+    # CORS — allow localhost dev + any Render-hosted frontend
+    _cors_origins = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ]
+    # If FRONTEND_URL is set (e.g. https://supply-chain-risk-ai-frontend.onrender.com),
+    # add it; otherwise fall back to allow_origin_regex for all onrender.com subdomains.
+    _frontend_url = getattr(settings, "frontend_url", None)
+    if _frontend_url:
+        _cors_origins.append(_frontend_url.rstrip("/"))
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://localhost:3000"],
+        allow_origins=_cors_origins,
+        allow_origin_regex=r"https://.*\.onrender\.com",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
