@@ -6,9 +6,12 @@ model cannot be loaded (e.g. offline or missing dep).
 """
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from app.core.logging import logger
+
+_DISABLED = os.getenv("DISABLE_RERANKER", "").lower() in ("1", "true", "yes")
 
 DEFAULT_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
@@ -20,6 +23,10 @@ class CrossEncoderReranker:
 
     def _load(self) -> None:
         if self._model is not None:
+            return
+        if _DISABLED:
+            logger.info("Reranker disabled via DISABLE_RERANKER env var.")
+            self._model = False
             return
         try:
             from sentence_transformers import CrossEncoder  # heavy import

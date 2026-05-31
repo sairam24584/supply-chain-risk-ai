@@ -7,8 +7,8 @@ services:
     plan: free
     buildCommand: |
       pip install --upgrade pip
-      pip install -r requirements.txt
-      cd backend && python -m scripts.ingest --rebuild --local-embed
+      pip install -r requirements-prod.txt
+      cd backend && python -m scripts.ingest --rebuild
     startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
     autoDeploy: true
     envVars:
@@ -32,6 +32,8 @@ services:
         value: text-embedding-3-small
       - key: FALLBACK_EMBEDDING_MODEL
         value: sentence-transformers/all-MiniLM-L6-v2
+      - key: DISABLE_RERANKER
+        value: "true"
 
   - type: web
     name: supply-chain-risk-ai-frontend

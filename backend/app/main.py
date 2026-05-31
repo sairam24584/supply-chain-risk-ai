@@ -29,19 +29,12 @@ def create_app() -> FastAPI:
     )
 
     # CORS — allow localhost dev + any Render-hosted frontend
-    _cors_origins = [
-        "http://localhost:5173",
-        "http://localhost:3000",
-    ]
-    # If FRONTEND_URL is set (e.g. https://supply-chain-risk-ai-frontend.onrender.com),
-    # add it; otherwise fall back to allow_origin_regex for all onrender.com subdomains.
-    _frontend_url = getattr(settings, "frontend_url", None)
-    if _frontend_url:
-        _cors_origins.append(_frontend_url.rstrip("/"))
-
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=_cors_origins,
+        allow_origins=[
+            "http://localhost:5173",
+            "http://localhost:3000",
+        ],
         allow_origin_regex=r"https://.*\.onrender\.com",
         allow_credentials=True,
         allow_methods=["*"],
@@ -66,14 +59,14 @@ def create_app() -> FastAPI:
             settings.primary_llm_model,
             settings.data_csv_path,
         )
-        # Run heavy init in the background so uvicorn can bind immediately.
+        # Run heavy init in background so uvicorn can bind the port immediately.
         asyncio.create_task(_background_init(app))
 
-    async def _background_init(app) -> None:
+    async def _background_init(_app) -> None:
         import asyncio
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
-        # Pre-warm DataFrame (CPU-bound — run in thread pool)
+        # Pre-warm DataFrame in thread pool (CPU-bound)
         try:
             from app.services.analytics import get_df
             await loop.run_in_executor(None, get_df)
@@ -81,7 +74,7 @@ def create_app() -> FastAPI:
         except Exception as exc:
             logger.warning("DataFrame pre-warm failed: {}", exc)
 
-        # Start proactive alerting scheduler (every 15 minutes)
+        # Start proactive alerting scheduler
         try:
             from apscheduler.schedulers.background import BackgroundScheduler
             from app.services.alerting import scan_and_alert
@@ -89,13 +82,14 @@ def create_app() -> FastAPI:
             scheduler = BackgroundScheduler()
             scheduler.add_job(scan_and_alert, "interval", minutes=15, id="alert_scan")
             scheduler.start()
-            app.state.scheduler = scheduler
+            _app.state.scheduler = scheduler
             logger.info("APScheduler started — alert scans every 15 minutes.")
-            # Initial scan in executor so it doesn't block
             await loop.run_in_executor(None, scan_and_alert)
             logger.info("Initial alert scan complete.")
         except ImportError:
             logger.warning("apscheduler not installed — proactive alerting disabled.")
+        except Exception as exc:
+            logger.warning("Alert scheduler failed to start: {}", exc)
 
     @app.on_event("shutdown")
     async def _shutdown() -> None:
