@@ -294,6 +294,46 @@ fails to follow the `FINDING: / SEVERITY: / ESCALATE:` format and adjust.
 
 ---
 
+## Design Decision 10 — Multi-tier query routing before the LangGraph graph
+
+**Problem:** The full agent pipeline (embedding → retrieval → 3 LLM calls → judge) takes 5–15 seconds. Many legitimate queries — greetings, dataset meta-questions, simple enumeration, domain concept explanations — do not need any LLM invocation.
+
+**Decision:** A layered short-circuit chain is evaluated in order before the LangGraph graph is invoked:
+
+```
+Incoming query
+  │
+  ├─ Greeting / identity regex          → instant reply, no LLM
+  ├─ SCM domain-concept regex           → canned explanation, no LLM
+  ├─ General-knowledge blocker          → out-of-scope reply, no LLM
+  ├─ Guardrail (PII, injection, scope)  → reject or redact
+  ├─ Data-lookup short-circuit          → answer from DataFrame, no LLM
+  ├─ Exact-match TTL cache              → cached response
+  ├─ Semantic similarity cache          → cached response
+  └─ LangGraph multi-agent pipeline     → full LLM reasoning
+```
+
+**Trade-offs:**
+- The data-lookup layer uses an `_ANALYTICAL_RE` guard to prevent intercepting questions that look like enumerations but are actually analytical ("which suppliers have the highest defect rates?" matches "suppliers" but contains "highest" → routed to LLM).
+- The general-knowledge blocker uses an entity-ref exception list so that "explain supplier risk" (operational) passes through while "what is supply and demand?" (generic economics) is blocked.
+- A 40-query regression test suite guards against regressions in routing logic.
+
+---
+
+## Design Decision 11 — Dynamic retry count per LLM provider
+
+**Problem:** The retry-on-low-quality loop (`run_with_retry`) retries the full agent pipeline if the judge score is below the threshold. With GPT-4o-mini this is worthwhile (quality often improves on retry). With Groq Llama-3.1-8b, structured output compliance is inconsistent — a retry doubles latency with minimal quality gain.
+
+**Decision:** `max_retries` is set dynamically at request time:
+
+```python
+max_retries = 1 if settings.openai_api_key else 0
+```
+
+This means switching from Groq to GPT-4o-mini (by adding `OPENAI_API_KEY` to `.env`) automatically enables retries with no code change.
+
+---
+
 ## Future enhancements (out of scope for v0.1)
 
 1. **Anomaly detection layer** — Isolation Forest over numeric fields,

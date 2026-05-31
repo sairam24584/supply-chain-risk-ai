@@ -257,7 +257,36 @@ Metrics emitted:
 - [x] Step 6 – Guardrails + DeepEval + LangSmith
 - [x] Step 7 – React frontend
 - [x] Step 8 – Architecture diagram + README + Design doc
-- [ ] Step 8b – Render deployment config (next)
+- [x] Step 8b – Render deployment config (`render.yaml` at root)
+
+---
+
+## Known Limitations
+
+| Limitation | Impact | Planned fix |
+| --- | --- | --- |
+| Groq Llama-3.1-8b-instant as fallback LLM | Judge scores ~20% (structured output compliance issues); GPT-4o-mini scores ~70–80% | Set `OPENAI_API_KEY` + `OPENAI_BASE_URL` in `.env` |
+| Specialist agents are synchronous | Parallel fanout runs in thread pool — works correctly, not as fast as native async | Convert to `async def` post-demo |
+| No SSE streaming | UI waits for full pipeline response (~5–15 s with Groq) | Build `/api/query/stream` endpoint |
+| Per-doc Chroma delete not implemented | Deleted documents' chunks linger in the vector store until next full re-ingest | Track chunk IDs per upload and delete on removal |
+| DeepEval metrics require OpenAI key | Without key, eval falls back to heuristic scoring | Run full DeepEval once gateway key is available |
+
+---
+
+## Demo Flow (10 minutes)
+
+| # | Query / Action | What it shows |
+| --- | --- | --- |
+| 1 | Open Query Console, type "Hi" | Instant greeting — no LLM called |
+| 2 | "What data are we analysing?" | Instant dataset summary from DataFrame |
+| 3 | "Which suppliers have the highest defect rates?" | Full agent pipeline, supplier findings, A2A escalation |
+| 4 | "Are there shipment routes with chronic delays?" | Shipment agent, carrier × route hotspots |
+| 5 | "Which SKUs are at stockout risk this week?" | Inventory agent, urgency detection |
+| 6 | "What is the risk associated with SKU68?" | Targeted drill-down, supervisor skips unused agents |
+| 7 | "Recommend a mitigation plan for our highest severity incidents" | Recommendation agent, prioritised action plan, judge score |
+| 8 | Show Dashboard → Anomalies → Alerts tabs | Analytics pages, IsolationForest anomalies, proactive alerts |
+| 9 | Upload a PDF → re-query | RAG grounding on user document |
+| 10 | Show Full Analysis panel on any response | Pipeline trace, agent findings, retrieved sources, escalations |
 
 ---
 

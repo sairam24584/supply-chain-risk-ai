@@ -1,7 +1,41 @@
 # Architecture
 
-Three diagrams: **system layers**, **multi-agent flow**, and **ingestion pipeline**.
+Four diagrams: **query routing**, **system layers**, **multi-agent flow**, and **ingestion pipeline**.
 All Mermaid sources render natively on GitHub and VS Code (Markdown Preview).
+
+---
+
+## 0. Query routing (before LangGraph is invoked)
+
+Every incoming query passes through a layered short-circuit chain. Most simple
+queries are resolved instantly without any LLM call.
+
+```mermaid
+flowchart TD
+    Q([Incoming query]) --> G{Greeting / identity?}
+    G -- yes --> GR[Instant greeting reply\nno LLM]
+    G -- no --> SC{SCM domain concept?\ne.g. 'what is supply chain risk analysis'}
+    SC -- yes --> SR[Canned domain explanation\nno LLM]
+    SC -- no --> GK{General knowledge blocker?\ne.g. 'what is blockchain'}
+    GK -- yes --> OOS[Out-of-scope reply\nno LLM]
+    GK -- no --> GUARD[Guardrails\nPII · injection · scope check]
+    GUARD -- fail --> OOS2[Reject / redact]
+    GUARD -- pass --> DL{Data-lookup?\ne.g. 'who are our suppliers'}
+    DL -- match --> DLR[DataFrame answer\nno LLM]
+    DL -- no match --> EC{Exact-match cache hit?}
+    EC -- yes --> CR1[Cached response]
+    EC -- no --> SEM{Semantic cache hit?}
+    SEM -- yes --> CR2[Cached response]
+    SEM -- no --> LG[LangGraph multi-agent pipeline]
+    LG --> RESP[Full agent response\nstored in both caches]
+
+    classDef fast fill:#dcfce7,stroke:#16a34a
+    classDef block fill:#fee2e2,stroke:#dc2626
+    classDef llm fill:#ede9fe,stroke:#6d28d9
+    class GR,SR,DLR,CR1,CR2 fast
+    class OOS,OOS2 block
+    class LG,RESP llm
+```
 
 ---
 
@@ -118,36 +152,43 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    Start([Query in]) --> Retrieve[retrieve_node<br/>Hybrid RAG]
+    Start([Query in]) --> Pre[query_preprocess\nintent · rewrite]
+    Pre --> Sup[supervisor_node\nrouting decision]
+    Sup --> Ret[retrieve_node\nHybrid RAG]
 
-    Retrieve --> Supplier[Supplier Risk Agent<br/>defect/inspection lens]
-    Retrieve --> Shipment[Shipment Analysis Agent<br/>carrier/route/delay lens]
-    Retrieve --> Inventory[Inventory Intelligence<br/>stockout/overstock lens]
+    Ret --> SA[Supplier Risk Agent\ndefect/inspection lens]
+    Ret --> SH[Shipment Analysis Agent\ncarrier/route/delay lens]
+    Ret --> IN[Inventory Intelligence\nstockout/overstock lens]
 
-    Supplier -. A2A escalation .-> Rec
-    Shipment -. A2A escalation .-> Rec
-    Inventory -. A2A escalation .-> Rec
+    SA -. A2A escalation .-> Rec
+    SH -. A2A escalation .-> Rec
+    IN -. A2A escalation .-> Rec
 
-    Supplier --> Rec[Recommendation Agent<br/>synthesise · prioritise · score]
-    Shipment --> Rec
-    Inventory --> Rec
+    SA --> Rec[Recommendation Agent\nsynthesize · prioritize · score]
+    SH --> Rec
+    IN --> Rec
 
-    Rec --> End([Answer + risk score])
+    Rec --> Judge[Judge Agent\nLLM-as-judge quality check]
+    Judge --> Rep[Report Agent\npolished narrative]
+    Rep --> End([Answer + risk score\n+ sources + escalations])
 
     classDef parallel fill:#fef3c7,stroke:#b45309
     classDef joiner fill:#dbeafe,stroke:#1d4ed8,stroke-width:2px
-    class Supplier,Shipment,Inventory parallel
+    classDef control fill:#f0fdf4,stroke:#16a34a
+    class SA,SH,IN parallel
     class Rec joiner
+    class Pre,Sup control
 ```
 
-**How it works.** `retrieve_node` runs once, then LangGraph fans out to the
-three specialist agents in parallel. Each specialist analyses the *same* retrieved
-context through its own lens and writes its finding into shared state. If a
-specialist sees red flags it pushes an entry onto the `escalations` reducer
-list — the A2A (agent-to-agent) channel. LangGraph waits for all three to
-finish before invoking the **Recommendation Agent**, which reads every
-specialist's finding plus the full escalation list and produces one prioritised,
-explainable plan.
+**How it works.** The query preprocessor rewrites the query and classifies intent.
+The supervisor decides which specialist agents to run (and can skip irrelevant ones).
+`retrieve_node` runs once, then LangGraph fans out to the three specialist agents
+**in parallel** (LangGraph superstep). Each specialist analyses the same retrieved
+context through its own lens and writes its finding into shared state. A2A escalation
+flags are pushed onto a shared reducer list. The **Recommendation Agent** synthesises
+all findings into one prioritised plan. The **Judge Agent** scores the plan against a
+quality rubric (actionable, grounded, prioritised, justified). The **Report Agent**
+formats a polished narrative (skipped for quick queries per supervisor decision).
 
 ---
 
