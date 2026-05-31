@@ -25,7 +25,7 @@ class MitigationAction(BaseModel):
     owner_role: str = Field(..., description="Owner role: 'Procurement Lead', 'Inventory Manager', etc.")
     timeframe_days: int = Field(..., ge=1, le=180, description="Target completion in days.")
     driver: str = Field(..., description="Which agent finding(s) drove this action.")
-    priority: int = Field(..., ge=1, le=3, description="1 = highest priority, 3 = lowest.")
+    priority: int = Field(..., ge=1, le=5, description="1 = highest priority, 5 = lowest.")
 
 
 class RecommendationPlan(BaseModel):

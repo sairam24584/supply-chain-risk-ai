@@ -15,19 +15,64 @@ const SAMPLE_QUERIES = [
   "Recommend a mitigation plan for the highest severity incidents.",
 ];
 
+const THREAD_KEY = "scri.thread";
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Strip metadata suffixes and prompt-template leakage from agent finding text. */
+function cleanFinding(text) {
+  if (!text || text.includes("did not run") || text.includes("agent unavailable")) return null;
+  let s = text
+    .replace(/\s*\[(severity|escalated|entities|citations)[^\]]*\]/gi, "")
+    .replace(/\s*Cite\s+[^.]+\.\s*Include citations\..*$/si, "")
+    .replace(/\s*Operations question:.*$/si, "")
+    .replace(/\s*Retrieved incident context:.*$/si, "")
+    .trim();
+  if (s.length > 500) s = s.slice(0, 500).replace(/\s+\S*$/, "") + "…";
+  return s || null;
+}
+
+/** Return the most relevant agent finding to show as the primary answer. */
+function getPrimaryFinding(data) {
+  const f = data.findings || {};
+  const intent = data.intent || "";
+  const order = {
+    supplier_quality:   ["supplier", "shipment", "inventory"],
+    shipment_logistics: ["shipment", "supplier", "inventory"],
+    inventory_demand:   ["inventory", "supplier", "shipment"],
+  }[intent] || ["supplier", "shipment", "inventory"];
+  for (const key of order) {
+    const cleaned = cleanFinding(f[key]);
+    if (cleaned) return cleaned;
+  }
+  return null;
+}
+
 export default function QueryConsole() {
   const [query, setQuery] = useState("");
-  const [thread, setThread] = useState([]);   // [{role, content/data}]
+  // Restore thread from sessionStorage so navigation away & back preserves history
+  const [thread, setThread] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem(THREAD_KEY) || "[]"); }
+    catch { return []; }
+  });
   const [loading, setLoading] = useState(false);
   const endRef = useRef(null);
   const inputRef = useRef(null);
+
+  // Persist thread to sessionStorage on every change (max 20 messages)
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(THREAD_KEY, JSON.stringify(thread.slice(-20)));
+    } catch { /* quota — ignore */ }
+  }, [thread]);
 
   // Listen for sidebar events
   useEffect(() => {
     const onNew = () => {
       setThread([]);
       setQuery("");
-      resetThread();         // new conversation memory thread on the backend
+      resetThread();
+      sessionStorage.removeItem(THREAD_KEY);
       inputRef.current?.focus();
     };
     const onRerun = (e) => { setQuery(e.detail || ""); inputRef.current?.focus(); };
@@ -55,10 +100,17 @@ export default function QueryConsole() {
       setThread((t) => [...t, { role: "assistant", data }]);
       pushRecent(q);
     } catch (err) {
-      setThread((t) => [
-        ...t,
-        { role: "assistant", error: err.userMessage || err.message || "Request failed" },
-      ]);
+      // Extract friendly message from API error response when available.
+      const apiDetail = err.response?.data;
+      let errorMsg;
+      if (apiDetail?.violations?.includes("out_of_scope")) {
+        errorMsg = "I'm focused on supply chain operations. Try asking about suppliers, shipments, or inventory risks.";
+      } else if (apiDetail?.message) {
+        errorMsg = apiDetail.message;
+      } else {
+        errorMsg = err.userMessage || err.message || "Request failed — please try again.";
+      }
+      setThread((t) => [...t, { role: "assistant", error: errorMsg }]);
     } finally {
       setLoading(false);
     }
@@ -134,26 +186,53 @@ export default function QueryConsole() {
 
 /* -------------------- MESSAGE COMPONENTS -------------------- */
 
+const CAPABILITY_CHIPS = [
+  { emoji: "🏭", label: "Supplier risk" },
+  { emoji: "🚚", label: "Shipment delays" },
+  { emoji: "📦", label: "Inventory stockouts" },
+  { emoji: "⚠️", label: "Anomaly detection" },
+];
+
 function Welcome({ onPick }) {
   return (
-    <div className="text-center py-12">
-      <div className="inline-flex h-12 w-12 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 items-center justify-center shadow-glow mb-4">
-        <Sparkles size={22} className="text-white" />
+    <div className="py-10 max-w-2xl mx-auto">
+      {/* Hero */}
+      <div className="text-center mb-8">
+        <div className="inline-flex h-14 w-14 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 items-center justify-center shadow-glow mb-5">
+          <Sparkles size={26} className="text-white" />
+        </div>
+        <h1 className="text-2xl font-bold text-ink-900 tracking-tight">
+          Supply Chain Risk Intelligence
+        </h1>
+        <p className="text-sm text-ink-500 mt-2 leading-relaxed">
+          Ask anything about your operational data — I'll retrieve historical incidents,
+          analyse risks across suppliers, shipments and inventory, and recommend actions.
+        </p>
       </div>
-      <h1 className="text-2xl font-bold text-ink-900 tracking-tight">
-        How can I help you today?
-      </h1>
-      <p className="text-sm text-ink-500 mt-2 max-w-md mx-auto">
-        I analyze your supply chain risks across suppliers, shipments and
-        inventory using a multi-agent RAG pipeline grounded in your incident data.
+
+      {/* Capability chips */}
+      <div className="flex flex-wrap justify-center gap-2 mb-7">
+        {CAPABILITY_CHIPS.map(({ emoji, label }) => (
+          <span
+            key={label}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-ink-200 bg-white text-xs text-ink-600 font-medium"
+          >
+            {emoji} {label}
+          </span>
+        ))}
+      </div>
+
+      {/* Sample queries */}
+      <p className="text-[11px] uppercase tracking-wider font-semibold text-ink-400 text-center mb-3">
+        Try asking
       </p>
-      <div className="mt-6 flex flex-wrap gap-2 justify-center max-w-2xl mx-auto">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         {SAMPLE_QUERIES.map((s) => (
           <button
             key={s}
             type="button"
             onClick={() => onPick(s)}
-            className="text-xs px-3 py-2 rounded-xl border border-ink-200 bg-white text-ink-700 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 transition text-left max-w-xs"
+            className="text-left text-sm px-4 py-3 rounded-xl border border-ink-200 bg-white text-ink-700 hover:border-brand-300 hover:bg-brand-50 hover:text-brand-800 transition leading-snug"
           >
             {s}
           </button>
@@ -179,43 +258,74 @@ function UserMessage({ text }) {
 }
 
 function ErrorMessage({ text }) {
+  const isScope = text?.includes("supply chain") || text?.includes("suppliers");
   return (
-    <div className="flex items-start gap-3 mb-6">
+    <div className="flex items-start gap-3 mb-5">
       <AgentAvatar />
-      <div className="flex-1 rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
-        <div className="flex items-center gap-2 text-red-700 text-sm font-semibold">
-          <AlertTriangle size={14} /> {text}
+      <div className={`flex-1 rounded-2xl border px-4 py-3 ${
+        isScope
+          ? "border-ink-200 bg-ink-50"
+          : "border-red-200 bg-red-50"
+      }`}>
+        <div className={`flex items-center gap-2 text-sm ${isScope ? "text-ink-700" : "text-red-700 font-semibold"}`}>
+          {!isScope && <AlertTriangle size={14} />} {text}
         </div>
       </div>
     </div>
   );
 }
+
+const PIPELINE_STEPS = [
+  { label: "Retrieving relevant incidents…",         ms: 1800 },
+  { label: "Analysing supplier, shipment & inventory risk…", ms: 3500 },
+  { label: "Synthesising recommendations…",          ms: 2000 },
+  { label: "Quality-judging the output…",            ms: 1200 },
+];
 
 function LoadingMessage() {
+  const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    const timers = [];
+    let acc = 0;
+    PIPELINE_STEPS.forEach((s, i) => {
+      if (i === 0) return;
+      acc += PIPELINE_STEPS[i - 1].ms;
+      timers.push(setTimeout(() => setStep(i), acc));
+    });
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  const pct = Math.round(((step + 1) / PIPELINE_STEPS.length) * 100);
+
   return (
     <div className="flex items-start gap-3 mb-6">
       <AgentAvatar />
-      <div className="flex-1">
-        <div className="flex items-center gap-2 text-ink-500 text-sm">
-          <Loader2 size={14} className="animate-spin text-brand-500" />
-          Running the multi-agent pipeline…
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 text-ink-600 text-sm font-medium">
+          <Loader2 size={13} className="animate-spin text-brand-500 shrink-0" />
+          {PIPELINE_STEPS[step].label}
         </div>
-        <div className="mt-3 text-xs text-ink-400 space-y-1">
-          <Step label="Hybrid retrieval (Chroma + BM25 → RRF → rerank)" />
-          <Step label="Supplier / Shipment / Inventory agents in parallel" />
-          <Step label="Recommendation Agent synthesises a plan" />
-          <Step label="Quality Judge scores the output" />
+        {/* Progress bar */}
+        <div className="mt-2.5 h-1 rounded-full bg-ink-100 overflow-hidden w-48">
+          <div
+            className="h-full rounded-full bg-brand-500 transition-all duration-700"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <div className="mt-1.5 flex gap-3">
+          {PIPELINE_STEPS.map((s, i) => (
+            <span
+              key={i}
+              className={`text-[10px] transition-colors duration-300 ${
+                i <= step ? "text-brand-600 font-medium" : "text-ink-300"
+              }`}
+            >
+              {["Retrieve", "Analyse", "Recommend", "Judge"][i]}
+            </span>
+          ))}
         </div>
       </div>
-    </div>
-  );
-}
-
-function Step({ label }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="h-1 w-1 rounded-full bg-ink-300" />
-      {label}
     </div>
   );
 }
@@ -273,182 +383,262 @@ function FeedbackBar({ query }) {
 }
 
 function AssistantMessage({ data, query }) {
+  const [expanded, setExpanded] = useState(false);
   const score = data.risk_score ?? null;
   const plan = data.recommendation_plan;
   const judge = data.judge_verdict;
+  const isGreeting = data.agents_invoked?.includes("greeting-handler") ||
+                     data.agents_invoked?.includes("guardrail");
+
   const scoreColor =
-    score == null   ? "text-ink-500" :
-    score >= 7      ? "text-red-600" :
-    score >= 4      ? "text-amber-600" :
+    score == null   ? "text-ink-400" :
+    score >= 7      ? "text-red-600"  :
+    score >= 4      ? "text-amber-600":
                       "text-emerald-600";
 
+  const TOP_N = 3;
+  const actions = plan?.actions || [];
+  const topActions = actions.slice(0, TOP_N);
+  const moreCount = actions.length - TOP_N;
+
+  // The direct factual answer from the specialist agent
+  const directAnswer = !isGreeting ? getPrimaryFinding(data) : null;
+
   return (
-    <div className="flex items-start gap-3 mb-6">
+    <div className="flex items-start gap-3 mb-5">
       <AgentAvatar />
-      <div className="flex-1 min-w-0 space-y-4">
+      <div className="flex-1 min-w-0">
 
-        {/* Headline + risk score */}
-        <div>
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-ink-900">Recommendation</h3>
-              {data.cache_hit && (
-                <span
-                  className="inline-flex items-center gap-1 rounded-md bg-emerald-50 text-emerald-700 px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-emerald-100"
-                  title={data.cache_type === "semantic" ?
-                    `Semantic match · sim ${data.cache_match?.similarity} · "${data.cache_match?.matched_query}"` :
-                    `Exact cache · cached at ${new Date((data.cached_at || 0) * 1000).toLocaleTimeString()}`}
-                >
-                  <Zap size={10} /> {data.cache_type === "semantic" ? "semantic cache" : "cached"}
-                </span>
-              )}
-              {data.intent && (
-                <span className="inline-flex items-center rounded-md bg-brand-50 text-brand-700 px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-brand-100">
-                  intent: {data.intent.replace(/_/g, " ")} ({Math.round((data.intent_confidence || 0) * 100)}%)
-                </span>
-              )}
-              {data.attempts > 1 && (
-                <span className="inline-flex items-center rounded-md bg-amber-50 text-amber-700 px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-amber-100">
-                  retried {data.attempts}×
-                </span>
-              )}
-            </div>
-            <div className={`text-right ${scoreColor}`}>
-              <div className="text-[10px] uppercase tracking-wider font-semibold">Risk score</div>
-              <div className="text-2xl font-extrabold leading-none">
-                {score ?? "—"}<span className="text-sm font-bold">/10</span>
-              </div>
-            </div>
+        {/* ── Meta badges ─────────────────────────────────────────── */}
+        {!isGreeting && (data.cache_hit || data.intent) && (
+          <div className="flex flex-wrap items-center gap-1.5 mb-2">
+            {data.cache_hit && (
+              <span
+                className="inline-flex items-center gap-1 rounded-md bg-emerald-50 text-emerald-700 px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-emerald-100"
+                title={data.cache_type === "semantic" ? `Semantic match` : `Exact cache`}
+              >
+                <Zap size={10} /> {data.cache_type === "semantic" ? "semantic cache" : "cached"}
+              </span>
+            )}
+            {data.intent && (
+              <span className="inline-flex items-center rounded-md bg-ink-50 text-ink-500 px-1.5 py-0.5 text-[10px] ring-1 ring-ink-200">
+                {data.intent.replace(/_/g, " ")} · {Math.round((data.intent_confidence || 0) * 100)}%
+              </span>
+            )}
+            {data.attempts > 1 && (
+              <span className="inline-flex items-center rounded-md bg-amber-50 text-amber-700 px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-amber-100">
+                retried {data.attempts}×
+              </span>
+            )}
           </div>
-        </div>
+        )}
 
-        {plan && plan.actions?.length > 0 ? (
-          <>
-            <p className="text-sm text-ink-800 leading-relaxed">{plan.executive_summary}</p>
-            <ol className="space-y-2">
-              {plan.actions.map((a, i) => (
-                <li
-                  key={i}
-                  className="rounded-xl border border-ink-100 bg-white px-3.5 py-3 hover:border-ink-200 transition"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1">
-                      <div className="text-sm font-semibold text-ink-900">
-                        {i + 1}. {a.title}
-                      </div>
-                      <div className="mt-1 text-xs text-ink-500">
-                        <span className="text-ink-400">Owner</span> <b className="text-ink-700">{a.owner_role}</b>
-                        <span className="mx-1.5 text-ink-300">·</span>
-                        <span className="text-ink-400">Timeframe</span> <b className="text-ink-700">{a.timeframe_days}d</b>
-                        <span className="mx-1.5 text-ink-300">·</span>
-                        <span className="text-ink-400">Driver</span> <span className="italic text-ink-600">{a.driver}</span>
+        {/* ── Primary answer card ──────────────────────────────────── */}
+        <div className="rounded-2xl border border-ink-100 bg-white px-4 py-3.5 shadow-card">
+
+          {isGreeting ? (
+            /* Greeting / out-of-scope: just show the answer text */
+            <p className="text-sm text-ink-800 leading-relaxed whitespace-pre-line">{data.answer}</p>
+          ) : (
+            <>
+              {/* Direct factual answer from the specialist agent */}
+              {directAnswer && (
+                <p className="text-sm text-ink-900 leading-relaxed font-medium mb-3 pb-3 border-b border-ink-100">
+                  {directAnswer}
+                </p>
+              )}
+
+              {/* Plan executive summary + risk score */}
+              {plan && (
+                <div className="flex items-start justify-between gap-4 mb-3">
+                  <p className="text-sm text-ink-600 leading-relaxed flex-1 italic">
+                    {plan.executive_summary}
+                  </p>
+                  {score !== null && (
+                    <div className={`shrink-0 text-right ${scoreColor}`}>
+                      <div className="text-[9px] uppercase tracking-wider font-semibold opacity-70">Risk</div>
+                      <div className="text-xl font-extrabold leading-none">
+                        {score}<span className="text-xs font-bold">/10</span>
                       </div>
                     </div>
-                    <PriorityChip priority={a.priority} />
-                  </div>
-                </li>
-              ))}
-            </ol>
-            <div className="text-xs text-ink-500 space-y-1.5 pt-1">
-              <div><b className="text-ink-700">Risk justification.</b> {plan.risk_score_justification}</div>
-              <div><b className="text-ink-700">Reasoning trail.</b> {plan.reasoning_trail}</div>
-            </div>
-          </>
-        ) : (
-          <pre className="text-sm whitespace-pre-wrap text-ink-700 font-sans leading-relaxed">
-            {data.answer}
-          </pre>
-        )}
-
-        {/* Judge */}
-        {judge && (
-          <div className="rounded-xl border border-brand-100 bg-brand-50/40 px-3.5 py-3">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-ink-900">
-                <ShieldCheck size={13} className="text-brand-600" /> Quality Judge
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="h-1 w-24 rounded-full bg-ink-100 overflow-hidden">
-                  <div
-                    className={`h-full ${judge.overall_quality >= 0.7 ? "bg-emerald-500" : judge.overall_quality >= 0.4 ? "bg-amber-500" : "bg-red-500"}`}
-                    style={{ width: `${(judge.overall_quality * 100).toFixed(0)}%` }}
-                  />
+                  )}
                 </div>
-                <span className="text-xs font-bold text-ink-900">
-                  {(judge.overall_quality * 100).toFixed(0)}%
-                </span>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
-              <Check label="actionable"    ok={judge.actionable} />
-              <Check label="grounded"      ok={judge.grounded} />
-              <Check label="prioritised"   ok={judge.prioritised} />
-              <Check label="score justified" ok={judge.score_justified} />
-            </div>
-            <p className="text-[11px] text-ink-600 italic mt-2 leading-relaxed">{judge.rationale}</p>
-          </div>
-        )}
+              )}
 
-        {/* Escalations */}
-        {data.escalations?.length > 0 && (
-          <div className="rounded-xl border border-red-200 bg-red-50/60 px-3.5 py-3">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-red-800 mb-2">
-              <GitBranch size={13} /> A2A escalations · {data.escalations.length}
-            </div>
-            <ul className="space-y-1">
-              {data.escalations.map((e, i) => (
-                <li key={i} className="flex flex-wrap items-center gap-2 text-xs text-ink-800">
-                  <span className="badge-soft-red">{e.agent}</span>
-                  <RiskBadge value={e.severity} />
-                  <span className="text-ink-700">— {e.reason}</span>
-                </li>
+              {/* Fallback: raw answer text */}
+              {!plan && !directAnswer && (
+                <p className="text-sm text-ink-800 leading-relaxed">{data.answer}</p>
+              )}
+
+              {/* Top actions */}
+              {topActions.length > 0 && (
+                <ol className="space-y-1.5 mt-1">
+                  {topActions.map((a, i) => (
+                    <li key={i} className="flex items-start gap-2.5 text-sm">
+                      <PriorityChip priority={a.priority} />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-ink-900 font-medium">{a.title}</span>
+                        <span className="text-ink-400 text-xs ml-2">
+                          {a.owner_role} · {a.timeframe_days}d
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                  {moreCount > 0 && !expanded && (
+                    <li
+                      className="text-xs text-brand-600 pl-1 cursor-pointer hover:underline"
+                      onClick={() => setExpanded(true)}
+                    >
+                      + {moreCount} more action{moreCount > 1 ? "s" : ""}
+                    </li>
+                  )}
+                </ol>
+              )}
+
+              {/* Expanded extra actions */}
+              {expanded && actions.slice(TOP_N).map((a, i) => (
+                <div key={i} className="flex items-start gap-2.5 text-sm mt-1.5">
+                  <PriorityChip priority={a.priority} />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-ink-900 font-medium">{a.title}</span>
+                    <span className="text-ink-400 text-xs ml-2">
+                      {a.owner_role} · {a.timeframe_days}d
+                    </span>
+                  </div>
+                </div>
               ))}
-            </ul>
-          </div>
-        )}
-
-        {/* Per-agent findings */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <AgentCard agent="supplier"  text={data.findings?.supplier} />
-          <AgentCard agent="shipment"  text={data.findings?.shipment} />
-          <AgentCard agent="inventory" text={data.findings?.inventory} />
+            </>
+          )}
         </div>
 
-        {/* Final report (Report Agent) */}
-        {data.final_report?.body && (
-          <details className="rounded-xl border border-ink-100 bg-white px-3.5 py-3" open>
-            <summary className="cursor-pointer text-xs font-semibold text-ink-900">
-              Report — {data.final_report.title}
-            </summary>
-            <div className="mt-2 text-sm text-ink-800 whitespace-pre-wrap leading-relaxed">
-              {data.final_report.body}
-            </div>
-            {data.final_report.next_steps?.length > 0 && (
-              <ul className="mt-3 list-disc pl-5 text-xs text-ink-700 space-y-1">
-                {data.final_report.next_steps.map((n, i) => <li key={i}>{n}</li>)}
-              </ul>
+        {/* ── Footer row ───────────────────────────────────────────── */}
+        <div className="flex items-center gap-3 mt-2 flex-wrap">
+
+          {/* Judge quality badge */}
+          {judge && (
+            <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full
+              ${judge.overall_quality >= 0.7 ? "bg-emerald-50 text-emerald-700" :
+                judge.overall_quality >= 0.4 ? "bg-amber-50 text-amber-700" :
+                "bg-red-50 text-red-700"}`}>
+              <ShieldCheck size={11} />
+              Quality {Math.round(judge.overall_quality * 100)}%
+            </span>
+          )}
+
+          {/* A2A escalation badge */}
+          {data.escalations?.length > 0 && (
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-700">
+              <GitBranch size={11} /> {data.escalations.length} escalation{data.escalations.length > 1 ? "s" : ""}
+            </span>
+          )}
+
+          {/* Sources */}
+          {data.sources?.length > 0 && (
+            <SourcesCollapsible sources={data.sources} />
+          )}
+
+          {/* Full analysis toggle */}
+          {!isGreeting && (plan || judge) && (
+            <button
+              onClick={() => setExpanded(x => !x)}
+              className="text-[11px] text-brand-600 hover:underline ml-auto"
+            >
+              {expanded ? "Hide details ↑" : "Full analysis ↓"}
+            </button>
+          )}
+        </div>
+
+        {/* ── Expanded details ──────────────────────────────────────── */}
+        {expanded && (
+          <div className="mt-3 space-y-3">
+
+            {/* Risk justification */}
+            {plan?.risk_score_justification && (
+              <p className="text-xs text-ink-600">
+                <b className="text-ink-800">Justification:</b> {plan.risk_score_justification}
+              </p>
             )}
-          </details>
-        )}
 
-        {/* Sources collapsible */}
-        <SourcesCollapsible sources={data.sources || []} />
+            {/* Quality Judge */}
+            {judge && (
+              <div className="rounded-xl border border-brand-100 bg-brand-50/40 px-3.5 py-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-ink-900">
+                    <ShieldCheck size={13} className="text-brand-600" /> Quality Judge
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="h-1 w-24 rounded-full bg-ink-100 overflow-hidden">
+                      <div
+                        className={`h-full ${judge.overall_quality >= 0.7 ? "bg-emerald-500" : judge.overall_quality >= 0.4 ? "bg-amber-500" : "bg-red-500"}`}
+                        style={{ width: `${(judge.overall_quality * 100).toFixed(0)}%` }}
+                      />
+                    </div>
+                    <span className="text-xs font-bold text-ink-900">
+                      {(judge.overall_quality * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+                  <Check label="actionable"     ok={judge.actionable} />
+                  <Check label="grounded"       ok={judge.grounded} />
+                  <Check label="prioritised"    ok={judge.prioritised} />
+                  <Check label="score justified" ok={judge.score_justified} />
+                </div>
+                <p className="text-[11px] text-ink-600 italic mt-2 leading-relaxed">{judge.rationale}</p>
+              </div>
+            )}
 
-        {/* Guardrails + trail */}
-        {data.guardrail_violations?.length > 0 && (
-          <div className="text-[11px] text-ink-500">
-            <span className="text-ink-400 mr-1">guardrails:</span>
-            {data.guardrail_violations.map((v, i) => (
-              <span key={i} className="mr-1 badge-soft-ink">{v}</span>
-            ))}
+            {/* A2A Escalations */}
+            {data.escalations?.length > 0 && (
+              <div className="rounded-xl border border-red-200 bg-red-50/60 px-3.5 py-3">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-red-800 mb-2">
+                  <GitBranch size={13} /> A2A escalations · {data.escalations.length}
+                </div>
+                <ul className="space-y-1">
+                  {data.escalations.map((e, i) => (
+                    <li key={i} className="flex flex-wrap items-center gap-2 text-xs text-ink-800">
+                      <span className="badge-soft-red">{e.agent}</span>
+                      <RiskBadge value={e.severity} />
+                      <span className="text-ink-700">— {e.reason}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Per-agent findings */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <AgentCard agent="supplier"  text={data.findings?.supplier} />
+              <AgentCard agent="shipment"  text={data.findings?.shipment} />
+              <AgentCard agent="inventory" text={data.findings?.inventory} />
+            </div>
+
+            {/* Final report */}
+            {data.final_report?.body && (
+              <details className="rounded-xl border border-ink-100 bg-white px-3.5 py-3">
+                <summary className="cursor-pointer text-xs font-semibold text-ink-900">
+                  Report — {data.final_report.title}
+                </summary>
+                <div className="mt-2 text-sm text-ink-800 whitespace-pre-wrap leading-relaxed">
+                  {data.final_report.body}
+                </div>
+                {data.final_report.next_steps?.length > 0 && (
+                  <ul className="mt-3 list-disc pl-5 text-xs text-ink-700 space-y-1">
+                    {data.final_report.next_steps.map((n, i) => <li key={i}>{n}</li>)}
+                  </ul>
+                )}
+              </details>
+            )}
+
+            {/* Agent trail */}
+            <div className="text-[11px] text-ink-400">
+              {data.agents_invoked?.join(" → ")}
+            </div>
           </div>
         )}
-        <div className="text-[11px] text-ink-400">
-          {data.agents_invoked?.join(" → ")}
-        </div>
 
         {/* Feedback */}
-        {query && <FeedbackBar query={query} />}
+        {query && !isGreeting && <FeedbackBar query={query} />}
       </div>
     </div>
   );

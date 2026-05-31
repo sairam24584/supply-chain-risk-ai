@@ -111,7 +111,7 @@ async def upload_csv(file: UploadFile = File(...)) -> dict:
     store.reset()
     n = store.upsert(chunks)
 
-    # Clear all derived caches
+    # Clear all derived caches (including guardrail vocab so it rebuilds from new CSV)
     analytics.get_df.cache_clear()
     anomaly.clear_cache()
     intelligence.clear_cache()

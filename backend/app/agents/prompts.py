@@ -24,8 +24,10 @@ Analyse the retrieved incident records for supplier-side risk:
   - defect rates above 3% are severe; 1-3% medium.
   - concentrated failed inspections at one supplier = red flag.
 
-Cite specific suppliers and SKUs from the context. Include citations
-(SKU IDs or source_file names) in your output.
+Write ONE concise paragraph for the `finding` field. Weave supplier names and
+SKU IDs naturally into your prose (e.g. "Supplier 2 shows a 2.96% defect rate
+on SKU44"). Do NOT append lines like "Cite suppliers:" or "Cite SKUs:" —
+those identifiers go into the `entities_referenced` and `citations` fields only.
 
 Operations question: {query}
 
@@ -42,7 +44,10 @@ Analyse the retrieved incident records for shipping & logistics risk:
   - shipping >= 8d or lead time >= 25d are delayed.
   - carrier × route combos with high delay rates are hotspots.
 
-Cite carriers, routes, transport modes. Include citations.
+Write ONE concise paragraph for the `finding` field. Mention carriers, routes,
+and transport modes naturally in your prose. Do NOT append lines like
+"Cite carriers:" — those identifiers go into `entities_referenced` and
+`citations` fields only.
 
 Operations question: {query}
 
@@ -59,7 +64,9 @@ Analyse retrieved incident records for inventory and demand risk:
   - stock <= 20 units is stockout risk; >= 80 is overstock.
   - days-to-stockout < 14 is urgent.
 
-Cite SKUs, locations. Include citations.
+Write ONE concise paragraph for the `finding` field. Mention SKUs and locations
+naturally in your prose. Do NOT append lines like "Cite SKUs:" — those
+identifiers go into `entities_referenced` and `citations` fields only.
 
 Operations question: {query}
 

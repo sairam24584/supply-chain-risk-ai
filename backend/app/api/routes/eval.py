@@ -15,8 +15,5 @@ RESULTS_PATH = Path(__file__).resolve().parents[4] / "data" / "eval_results.json
 async def get_eval_results() -> dict:
     """Return the latest DeepEval run results from data/eval_results.json."""
     if not RESULTS_PATH.exists():
-        raise HTTPException(
-            status_code=404,
-            detail="No eval results found. Run: python -m scripts.eval from backend/",
-        )
+        return {"num_cases": 0, "metrics_summary": {}, "run_at": None}
     return json.loads(RESULTS_PATH.read_text())

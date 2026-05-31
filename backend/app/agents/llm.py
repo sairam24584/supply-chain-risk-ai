@@ -26,8 +26,8 @@ def _try_openai() -> ChatOpenAI | None:
             model=settings.primary_llm_model,
             api_key=settings.openai_api_key,
             temperature=0.2,
-            timeout=30,
-            max_retries=3,   # allows automatic retry on Groq 429 (rate-limit)
+            timeout=20,
+            max_retries=2,
         )
         if settings.openai_base_url:
             kwargs["base_url"] = settings.openai_base_url
@@ -51,7 +51,7 @@ def _try_groq() -> ChatOpenAI | None:
             base_url=GROQ_BASE_URL,
             temperature=0.2,
             timeout=30,
-            max_retries=3,   # allows automatic retry on Groq 429 (rate-limit)
+            max_retries=1,   # keep low with Groq to avoid compounding latency
         )
         logger.info("LLM ready: groq:{}", settings.fallback_llm_model)
         return llm

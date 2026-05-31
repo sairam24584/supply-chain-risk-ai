@@ -11,7 +11,7 @@ class HealthResponse(BaseModel):
 
 
 class QueryRequest(BaseModel):
-    query: str = Field(..., min_length=3, max_length=1000, description="Natural language question")
+    query: str = Field(..., min_length=1, max_length=1000, description="Natural language question")
     top_k: int = Field(default=5, ge=1, le=20)
     filters: dict[str, Any] | None = Field(default=None, description="Optional metadata filters")
     thread_id: str | None = Field(
@@ -57,7 +57,7 @@ class QueryResponse(BaseModel):
 
 
 class RetrieveRequest(BaseModel):
-    query: str = Field(..., min_length=3, max_length=1000)
+    query: str = Field(..., min_length=1, max_length=1000)
     top_k: int = Field(default=5, ge=1, le=20)
     filters: dict[str, Any] | None = Field(default=None)
     rerank: bool = Field(default=True)

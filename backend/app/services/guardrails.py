@@ -41,10 +41,26 @@ _DOMAIN_VOCAB = {
     "sku", "skus", "defect", "defects", "inspection", "quality", "lead time",
     "order", "orders", "demand", "forecast", "freight", "transport",
     "stockout", "overstock", "risk", "disruption", "bottleneck", "fulfillment",
+    # broader data-query terms
+    "anomaly", "anomalies", "product", "products", "category", "categories",
+    "location", "locations", "region", "regions", "department", "departments",
+    "transportation", "data", "overview", "supply", "chain", "operations",
+    "performance", "cost", "costs", "revenue", "price", "analysis",
 }
 
 # Threshold below which we consider the query likely out-of-scope.
 _MIN_DOMAIN_HITS = 1
+
+# "What is X" / "Define X" / "Explain X" patterns that are general knowledge
+# questions, not operational data queries — block even if domain words appear.
+_GENERAL_KNOWLEDGE_RE = re.compile(
+    r"^\s*(what\s+is\s+(a\s+|an\s+|the\s+)?(?!our\b|my\b|the\s+current\b|this\b)"
+    r"|define\s+|explain\s+(me\s+)?(what\s+is\s+)?"
+    r"|tell\s+me\s+about\s+(a\s+|an\s+|the\s+concept\b)"
+    r"|how\s+does\s+.{0,30}\s+work\b"
+    r"|what\s+does\s+.{0,20}\s+mean\b)",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -90,11 +106,21 @@ def check_input(query: str) -> GuardResult:
     q, pii_hits = _redact(q)
     violations.extend(pii_hits)
 
-    # In-scope check
-    tokens = set(re.findall(r"[A-Za-z]+", lower))
-    domain_hits = sum(1 for w in _DOMAIN_VOCAB if w in lower or w in tokens)
-    if domain_hits < _MIN_DOMAIN_HITS:
+    # Block "what is supply and demand" style general-knowledge definitions,
+    # but allow operational queries that reference specific entities ("for Supplier X",
+    # "for SKU", "our", "my", "this week", etc.)
+    _ENTITY_REF_RE = re.compile(
+        r"\b(for\s+[A-Z]|our\b|my\b|this\b|current\b|SKU\d|[Ss]upplier\s+\d)", re.I
+    )
+    if _GENERAL_KNOWLEDGE_RE.match(q) and not _ENTITY_REF_RE.search(q):
         violations.append("out_of_scope")
+
+    # In-scope check (only if not already blocked)
+    if "out_of_scope" not in violations:
+        tokens = set(re.findall(r"[A-Za-z]+", lower))
+        domain_hits = sum(1 for w in _DOMAIN_VOCAB if w in lower or w in tokens)
+        if domain_hits < _MIN_DOMAIN_HITS:
+            violations.append("out_of_scope")
 
     # Hard fails: injection + out_of_scope are reject reasons.
     ok = "prompt_injection" not in violations and "out_of_scope" not in violations
@@ -107,13 +133,9 @@ def check_output(
     allowed_skus: set[str],
     allowed_sources: set[str] | None = None,
     citations: list[str] | None = None,
+    original_query: str | None = None,
 ) -> GuardResult:
-    """Validate the agent's final answer.
-
-    Flags hallucinated suppliers/SKUs, verifies citations against allowed
-    sources, redacts PII. Hallucination + invalid-citation are warnings
-    (surfaced in violations); only an empty output is a hard fail.
-    """
+    """Validate the agent's final answer."""
     if not answer:
         return GuardResult(ok=False, value="", violations=["empty_output"])
 
@@ -126,8 +148,6 @@ def check_output(
         if m not in allowed_skus:
             violations.append(f"hallucinated_sku:{m}")
 
-    # Citation verification — every citation must be present in retrieved
-    # entities or source file names; otherwise flag as unverifiable.
     if citations:
         valid_pool = set(allowed_skus) | (allowed_sources or set()) | allowed_suppliers
         for c in citations:

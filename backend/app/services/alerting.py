@@ -123,7 +123,7 @@ def scan_and_alert() -> int:
     if "delay_status" in df.columns and "Shipping carriers" in df.columns:
         carrier_delay = (
             df.groupby(["Shipping carriers", "Routes"])
-            .apply(lambda g: (g["delay_status"] == "delayed").mean())
+            .apply(lambda g: (g["delay_status"] == "delayed").mean(), include_groups=False)
             .reset_index(name="delay_rate")
         )
         delayed_routes = carrier_delay[carrier_delay["delay_rate"] > DELAY_RATE_THRESHOLD]

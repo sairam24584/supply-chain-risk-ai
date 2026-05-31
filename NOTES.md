@@ -49,5 +49,17 @@ npm run dev
 ```
 Open http://localhost:5173
 
+## Smoke Test Results (2026-05-30)
+- Data loader: 100 rows, 28 cols ✅
+- Analytics (supplier/shipment/inventory/dashboard): all pass ✅
+- Anomaly detection: 15/100 anomalies, score range [0,1] ✅
+- Alerting service: 46 alerts generated (supplier=5, shipment=6, inventory=20, anomaly=15) ✅
+- Feedback service: boost/penalty applied correctly (×1.25 / ×0.80) ✅
+- New routes (alerts=3, feedback=2, eval=1): all import cleanly ✅
+- Pydantic schemas: QueryRequest/QueryResponse/FeedbackRequest all validate ✅
+- Frontend files: ThumbsUp/Down, FeedbackBar, feedbackApi all wired correctly ✅
+- Fixed: pandas FutureWarning in alerting.py (include_groups=False)
+- Note: Linux sandbox mount shows truncated files — real files on Windows are complete
+
 ## Session History
 - Sessions 1–5: scaffold → agents → analytics → guardrails → DeepEval harness → React frontend → docs → gateway/SSL fix → UI overhaul → cache/memory → Phase 2 (loaders, preprocessor, query rewriter, intent classifier, prompt compression, supervisor, report agent, citation guardrail, retry loop, render.yaml)

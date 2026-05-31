@@ -2,7 +2,6 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
-  MessageSquareText,
   Factory,
   Truck,
   Boxes,
@@ -10,11 +9,14 @@ import {
   Activity,
   Map,
   Plus,
-  Clock,
   Wrench,
   Sparkles,
   Database,
+  BarChart2,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
+import StatusPanel from "./StatusPanel.jsx";
 
 const TOOLS = [
   { to: "/dashboard", label: "Dashboard",       icon: LayoutDashboard },
@@ -49,7 +51,7 @@ export function clearRecents() {
   window.dispatchEvent(new Event("recents-changed"));
 }
 
-function useRecents() {
+export function useRecents() {
   const [recents, setRecents] = useState(() => {
     try { return JSON.parse(localStorage.getItem(RECENTS_KEY) || "[]"); }
     catch { return []; }
@@ -72,118 +74,101 @@ function useRecents() {
 export default function Layout({ children }) {
   const navigate = useNavigate();
   const loc = useLocation();
-  const recents = useRecents();
+  const [showStatus, setShowStatus] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const startNewQuery = () => {
-    // Tell Query Console to clear its thread, then navigate.
     window.dispatchEvent(new Event("new-query"));
     navigate("/query");
   };
 
   return (
-    <div className="min-h-screen flex bg-white">
-      {/* Sidebar — light, AI-assistant style */}
-      <aside className="w-[268px] shrink-0 flex flex-col border-r border-ink-100 bg-white">
-        {/* Brand */}
-        <div className="px-4 pt-4 pb-3 flex items-center gap-2.5">
-          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center">
+    <div className="h-screen flex bg-white overflow-hidden">
+      {/* Sidebar */}
+      <aside
+        className={`shrink-0 flex flex-col border-r border-ink-100 bg-white transition-all duration-200 ${
+          sidebarOpen ? "w-[268px]" : "w-14"
+        }`}
+      >
+        {/* Brand + toggle */}
+        <div className={`flex items-center border-b border-ink-100 ${sidebarOpen ? "px-4 pt-4 pb-3 gap-2.5" : "flex-col px-2 pt-3 pb-2 gap-2"}`}>
+          <div className="h-8 w-8 shrink-0 rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center">
             <ShieldAlert size={16} className="text-white" />
           </div>
-          <div className="min-w-0">
-            <div className="font-semibold text-sm text-ink-900 truncate">Supply Chain</div>
-            <div className="text-[10px] uppercase tracking-[0.14em] text-ink-400 -mt-0.5">
-              Risk Intelligence
+          {sidebarOpen && (
+            <div className="min-w-0 flex-1">
+              <div className="font-semibold text-sm text-ink-900 truncate">Supply Chain</div>
+              <div className="text-[10px] uppercase tracking-[0.14em] text-ink-400 -mt-0.5">
+                Risk Intelligence
+              </div>
             </div>
-          </div>
-        </div>
-
-        {/* + New query */}
-        <div className="px-3 pb-3">
+          )}
           <button
-            onClick={startNewQuery}
-            className="w-full inline-flex items-center gap-2 rounded-xl border border-ink-200 bg-white px-3 py-2.5 text-sm font-medium text-ink-800 hover:bg-ink-50 hover:border-ink-300 shadow-card transition"
+            onClick={() => setSidebarOpen(o => !o)}
+            className="shrink-0 h-6 w-6 flex items-center justify-center rounded-md hover:bg-ink-100 text-ink-400 hover:text-ink-700 transition"
+            title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
           >
-            <Plus size={15} className="text-brand-600" />
-            New query
+            {sidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
           </button>
         </div>
 
-        {/* Recents */}
-        <div className="px-3 pb-3 flex-1 overflow-y-auto">
-          <div className="px-1 pt-1 pb-2 flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-[0.14em] font-semibold text-ink-400">
-              Recent
-            </span>
-            {recents.length > 0 && (
-              <button
-                onClick={clearRecents}
-                className="text-[10px] text-ink-400 hover:text-ink-700"
-              >
-                clear
-              </button>
-            )}
-          </div>
-          {recents.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-ink-200 px-3 py-4 text-xs text-ink-400 leading-relaxed">
-              Your recent queries will appear here.
-            </div>
-          ) : (
-            <div className="space-y-0.5">
-              {recents.map((r) => (
-                <button
-                  key={r.ts}
-                  onClick={() => {
-                    window.dispatchEvent(
-                      new CustomEvent("rerun-query", { detail: r.q })
-                    );
-                    navigate("/query");
-                  }}
-                  className="w-full text-left flex items-start gap-2 px-2.5 py-2 rounded-lg text-[13px] text-ink-700 hover:bg-ink-50 transition"
-                  title={r.q}
-                >
-                  <Clock size={13} className="mt-0.5 text-ink-400 shrink-0" />
-                  <span className="line-clamp-2 leading-snug">{r.q}</span>
-                </button>
-              ))}
-            </div>
-          )}
+        {/* + New query */}
+        <div className={`${sidebarOpen ? "px-3" : "px-2"} py-3`}>
+          <button
+            onClick={startNewQuery}
+            title="New query"
+            className={`inline-flex items-center justify-center gap-2 rounded-xl border border-ink-200 bg-white text-sm font-medium text-ink-800 hover:bg-ink-50 hover:border-ink-300 shadow-card transition
+              ${sidebarOpen ? "w-full px-3 py-2.5" : "w-full h-10"}`}
+          >
+            <Plus size={15} className="text-brand-600 shrink-0" />
+            {sidebarOpen && "New query"}
+          </button>
+        </div>
 
-          {/* Tools */}
-          <div className="mt-5">
+        {/* Tools */}
+        <div className={`${sidebarOpen ? "px-3" : "px-2"} pb-3 flex-1 overflow-y-auto`}>
+          {sidebarOpen && (
             <div className="px-1 pt-1 pb-1 flex items-center gap-1.5">
               <Wrench size={11} className="text-ink-400" />
               <span className="text-[10px] uppercase tracking-[0.14em] font-semibold text-ink-400">
                 Tools
               </span>
             </div>
-            <div className="space-y-0.5 pt-1">
-              {TOOLS.map(({ to, label, icon: Icon }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  className={({ isActive }) =>
-                    `flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition ${
-                      isActive
-                        ? "bg-brand-50 text-brand-700"
-                        : "text-ink-700 hover:bg-ink-50"
-                    }`
-                  }
-                >
-                  <Icon size={15} className="opacity-80" />
-                  {label}
-                </NavLink>
-              ))}
-            </div>
+          )}
+          <div className={`${sidebarOpen ? "space-y-0.5 pt-1" : "space-y-1 pt-1"}`}>
+            {TOOLS.map(({ to, label, icon: Icon }) => (
+              <NavLink
+                key={to}
+                to={to}
+                title={!sidebarOpen ? label : undefined}
+                className={({ isActive }) =>
+                  `flex items-center rounded-lg font-medium transition
+                   ${sidebarOpen ? "gap-2.5 px-2.5 py-2 text-[13px]" : "justify-center h-10 w-full"}
+                   ${isActive ? "bg-brand-50 text-brand-700" : "text-ink-700 hover:bg-ink-50"}`
+                }
+              >
+                <Icon size={15} className="opacity-80 shrink-0" />
+                {sidebarOpen && label}
+              </NavLink>
+            ))}
           </div>
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-3 border-t border-ink-100">
-          <div className="text-[11px] text-ink-500 flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            connected
-          </div>
-          <div className="text-[10px] text-ink-400 mt-0.5">v0.2.0 · Multi-agent RAG</div>
+        <div className={`${sidebarOpen ? "px-4" : "px-2"} py-3 border-t border-ink-100`}>
+          {sidebarOpen ? (
+            <>
+              <div className="text-[11px] text-ink-500 flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                connected
+              </div>
+              <div className="text-[10px] text-ink-400 mt-0.5">v0.2.0 · Multi-agent RAG</div>
+            </>
+          ) : (
+            <div className="flex justify-center">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            </div>
+          )}
         </div>
       </aside>
 
@@ -198,20 +183,32 @@ export default function Layout({ children }) {
                 : breadcrumb(loc.pathname)}
             </span>
           </div>
-          <a
-            href="http://localhost:8000/docs"
-            target="_blank"
-            rel="noreferrer"
-            className="text-xs text-ink-500 hover:text-ink-900 transition"
-          >
-            API docs ↗
-          </a>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowStatus(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-2.5 py-1.5 text-xs font-medium text-ink-700 hover:bg-ink-50 hover:border-ink-300 shadow-card transition"
+            >
+              <BarChart2 size={13} className="text-brand-500" />
+              Status
+            </button>
+            <a
+              href="http://localhost:8000/docs"
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-ink-500 hover:text-ink-900 transition"
+            >
+              API docs ↗
+            </a>
+          </div>
         </header>
 
         <main className="flex-1 min-h-0 overflow-hidden">
           <div className="h-full animate-fade-in">{children}</div>
         </main>
       </div>
+
+      {/* Status slide-over panel */}
+      {showStatus && <StatusPanel onClose={() => setShowStatus(false)} />}
     </div>
   );
 }

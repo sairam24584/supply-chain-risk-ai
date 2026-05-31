@@ -54,6 +54,14 @@ def create_app() -> FastAPI:
             settings.primary_llm_model,
             settings.data_csv_path,
         )
+        # Pre-warm DataFrame + derived caches so first query is not cold
+        try:
+            from app.services.analytics import get_df
+            get_df()
+            logger.info("DataFrame pre-warmed at startup.")
+        except Exception as exc:
+            logger.warning("DataFrame pre-warm failed: {}", exc)
+
         # Start proactive alerting scheduler (every 15 minutes)
         try:
             from apscheduler.schedulers.background import BackgroundScheduler
