@@ -46,8 +46,5 @@ services:
         value: https://supply-chain-risk-ai-backend.onrender.com
     routes:
       - type: rewrite
-        source: /api/*
-        destination: https://supply-chain-risk-ai-backend.onrender.com/api/:splat
-      - type: rewrite
         source: /*
         destination: /index.html
