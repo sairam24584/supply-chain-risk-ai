@@ -1,0 +1,50 @@
+{
+  "run_at": "2026-06-01T18:27:50.455914+00:00",
+  "num_cases": 2,
+  "scoring_mode": "heuristic",
+  "metrics_summary": {
+    "Answer Relevancy": 0.6125,
+    "Faithfulness": 0.9166,
+    "Mitigation Quality": 1.0
+  },
+  "cases": [
+    {
+      "query": "Which suppliers are creating the most quality risk?",
+      "expected_concepts": [
+        "defect",
+        "inspection",
+        "Fail",
+        "supplier"
+      ],
+      "scores": {
+        "Answer Relevancy": 0.6,
+        "Faithfulness": 1.0,
+        "Mitigation Quality": 1.0
+      },
+      "passed": {
+        "Answer Relevancy": false,
+        "Faithfulness": true,
+        "Mitigation Quality": true
+      }
+    },
+    {
+      "query": "Are there shipment routes with chronic delays we should re-route?",
+      "expected_concepts": [
+        "delay",
+        "route",
+        "carrier",
+        "shipping"
+      ],
+      "scores": {
+        "Answer Relevancy": 0.625,
+        "Faithfulness": 0.8333,
+        "Mitigation Quality": 1.0
+      },
+      "passed": {
+        "Answer Relevancy": false,
+        "Faithfulness": true,
+        "Mitigation Quality": true
+      }
+    }
+  ]
+}

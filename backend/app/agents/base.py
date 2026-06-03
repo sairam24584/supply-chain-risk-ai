@@ -66,10 +66,13 @@ def _run_specialist(
         return {f"{domain}_finding": None, "agents_invoked": [f"{domain}:skipped"]}
 
     snapshot = state.get(analytics_key) or {}
+    # If snapshot has a "summary" key, pass the pre-formatted text directly
+    # (avoids JSON wrapping and unicode escaping of the readable ranked list)
+    analytics_text = snapshot.get("summary") if snapshot.get("summary") else json.dumps(snapshot, default=str, indent=2)[:1200]
     prompt = prompt_template.format(
         query=state.get("query_rewritten") or state["query"],
         context=_format_hits(state.get("compressed_hits") or state.get("retrieved_hits", [])),
-        analytics=json.dumps(snapshot, default=str, indent=2)[:1200],
+        analytics=analytics_text,
     )
     result = _structured_invoke(prompt, AgentFinding)
     if result is None:

@@ -1,16 +1,4 @@
-"""Input and output guardrails for the supply-chain assistant.
-
-Inputs:
-  * length sanity (already done by pydantic, we re-check)
-  * prompt-injection patterns (ignore previous, system override, jailbreak)
-  * PII redaction (emails, phones, credit-card-like strings)
-  * in-scope check (must reference a supply-chain concept — heuristic, not LLM)
-
-Outputs:
-  * cited entity check (LLM must not invent supplier/SKU names absent from retrieved context)
-  * PII redaction on the final answer
-  * fail-soft: returns a sanitised string + a list of violations, never raises mid-graph
-"""
+"""Input and output guardrails for the supply-chain assistant."""
 from __future__ import annotations
 
 import re
@@ -32,7 +20,7 @@ _PHONE_RE = re.compile(r"\b(?:\+?\d{1,3}[\s\-]?)?\(?\d{3,4}\)?[\s\-]?\d{3,4}[\s\
 _CC_RE = re.compile(r"\b(?:\d[ -]*?){13,16}\b")
 _API_KEY_RE = re.compile(r"\b(sk-[A-Za-z0-9]{20,}|gsk_[A-Za-z0-9]{20,}|ls__[A-Za-z0-9]{20,})\b")
 
-# Supply-chain vocabulary used for in-scope check. Heuristic — keep broad.
+# Supply-chain vocabulary used for in-scope check.
 _DOMAIN_VOCAB = {
     "supplier", "suppliers", "warehouse", "warehouses", "inventory", "stock",
     "shipment", "shipments", "shipping", "carrier", "carriers", "route", "routes",
@@ -41,25 +29,19 @@ _DOMAIN_VOCAB = {
     "sku", "skus", "defect", "defects", "inspection", "quality", "lead time",
     "order", "orders", "demand", "forecast", "freight", "transport",
     "stockout", "overstock", "risk", "disruption", "bottleneck", "fulfillment",
-    # broader data-query terms
     "anomaly", "anomalies", "product", "products", "category", "categories",
     "location", "locations", "region", "regions", "department", "departments",
     "transportation", "data", "overview", "supply", "chain", "operations",
     "performance", "cost", "costs", "revenue", "price", "analysis",
-    # action / recommendation terms
     "mitigation", "mitigate", "recommend", "recommendation", "action", "plan",
     "reduce", "improve", "optimize", "resolve", "address", "fix",
-    # contextual/conversational operational terms
     "issue", "issues", "problem", "problems", "concern", "concerns",
     "urgent", "critical", "status", "health", "situation", "summary",
     "overview", "today", "focus", "happening", "update", "alert", "alerts",
 }
 
-# Threshold below which we consider the query likely out-of-scope.
 _MIN_DOMAIN_HITS = 1
 
-# "What is X" / "Define X" / "Explain X" patterns that are general knowledge
-# questions, not operational data queries — block even if domain words appear.
 _GENERAL_KNOWLEDGE_RE = re.compile(
     r"^\s*(what\s+is\s+(a\s+|an\s+|the\s+)?(?!our\b|my\b|the\s+current\b|this\b)"
     r"|define\s+|explain\s+(me\s+)?(what\s+is\s+)?"
@@ -67,6 +49,39 @@ _GENERAL_KNOWLEDGE_RE = re.compile(
     r"|how\s+does\s+.{0,30}\s+work\b"
     r"|what\s+does\s+.{0,20}\s+mean\b)",
     re.IGNORECASE,
+)
+
+# Follow-up / contextual reference queries — short queries that refer back to
+# a previous answer. These have no domain vocab but must reach LangGraph so the
+# conversation memory (MemorySaver + thread_id) can resolve the reference.
+_FOLLOWUP_RE = re.compile(
+    r"^\s*("
+    r"from\s+(the|that|this)\s+(list|above|earlier|previous|answer|response)"
+    r"|who\s+is\s+(the\s+)?(top|best|worst|first|second|highest|lowest|most|least)"
+    r"|which\s+(one|supplier|carrier|sku|product|is|has|have)"
+    r"|tell\s+me\s+more(\s+about)?"
+    r"|can\s+you\s+(elaborate|explain\s+more|expand)"
+    r"|what\s+about\s+(the|that|this|them|it)"
+    r"|and\s+(the|what\s+about)"
+    r"|more\s+details?"
+    r"|who\s+is\s+(the\s+)?top"
+    r"|top\s+one"
+    r"|the\s+(first|second|third|top|best|worst)"
+    r"|elaborate(\s+on\s+(that|this|it))?"
+    r"|go\s+on"
+    r"|continue"
+    r"|and\s+then"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_ENTITY_REF_RE = re.compile(
+    r"\b(for\s+[A-Z]|current\s+\w|this\s+(week|month|quarter)\b|SKU\d|[Ss]upplier\s+\d|"
+    r"supplier|suppliers|inventory|shipment|shipments|carrier|carriers|"
+    r"route|routes|defect|stockout|overstock|delay|delays|sku|skus|"
+    r"risk|quality|logistics|supply\s+chain|warehouse|procurement|"
+    r"freight|transport|fulfillment|anomaly|disruption)\b",
+    re.I,
 )
 
 
@@ -78,7 +93,7 @@ class GuardResult:
 
 
 def _redact(text: str) -> tuple[str, list[str]]:
-    """Mask emails, phones, card-like numbers, API keys. Returns (clean, hits)."""
+    """Mask emails, phones, card-like numbers, API keys."""
     hits: list[str] = []
     redacted = text
     for label, rgx, mask in [
@@ -109,70 +124,65 @@ def check_input(query: str) -> GuardResult:
             violations.append("prompt_injection")
             break
 
-    # PII strip (still allow query through, but redacted)
+    # PII strip (allow through, but redacted)
     q, pii_hits = _redact(q)
     violations.extend(pii_hits)
 
-    # Block pure general-knowledge definition queries ("what is blockchain?",
-    # "what is supply and demand?") but allow any query that references supply
-    # chain operational concepts ("explain the shipment delays", "define stockout
-    # risk in our data", "what does defect rate mean?").
-    _ENTITY_REF_RE = re.compile(
-        r"\b(for\s+[A-Z]|current\s+\w|this\s+(week|month|quarter)\b|SKU\d|[Ss]upplier\s+\d|"
-        r"supplier|suppliers|inventory|shipment|shipments|carrier|carriers|"
-        r"route|routes|defect|stockout|overstock|delay|delays|sku|skus|"
-        r"risk|quality|logistics|supply\s+chain|warehouse|procurement|"
-        r"freight|transport|fulfillment|anomaly|disruption)\b",
-        re.I,
-    )
+    # Follow-up / conversational reference queries bypass scope check entirely.
+    # These are short queries referring to a previous answer ("from the list who
+    # is the top?", "tell me more", "which one?"). LangGraph resolves them via
+    # conversation memory (MemorySaver + thread_id).
+    if _FOLLOWUP_RE.match(q):
+        return GuardResult(ok=True, value=q, violations=violations)
+
+    # Block pure general-knowledge queries unless they reference operational entities.
     if _GENERAL_KNOWLEDGE_RE.match(q) and not _ENTITY_REF_RE.search(q):
         violations.append("out_of_scope")
 
-    # In-scope check (only if not already blocked)
+    # In-scope check: must contain at least one supply-chain domain word.
     if "out_of_scope" not in violations:
-        tokens = set(re.findall(r"[A-Za-z]+", lower))
-        domain_hits = sum(1 for w in _DOMAIN_VOCAB if w in lower or w in tokens)
-        if domain_hits < _MIN_DOMAIN_HITS:
+        words = set(lower.split())
+        domain_hits = words & _DOMAIN_VOCAB
+        if not domain_hits:
             violations.append("out_of_scope")
 
-    # Hard fails: injection + out_of_scope are reject reasons.
-    ok = "prompt_injection" not in violations and "out_of_scope" not in violations
+    ok = not any(v in ("prompt_injection", "out_of_scope") for v in violations)
     return GuardResult(ok=ok, value=q, violations=violations)
+
 
 
 def check_output(
     answer: str,
-    allowed_suppliers: set[str],
-    allowed_skus: set[str],
+    allowed_suppliers: set[str] | None = None,
+    allowed_skus: set[str] | None = None,
     allowed_sources: set[str] | None = None,
     citations: list[str] | None = None,
-    original_query: str | None = None,
 ) -> GuardResult:
-    """Validate the agent's final answer."""
-    if not answer:
-        return GuardResult(ok=False, value="", violations=["empty_output"])
-
+    """Validate / sanitise LLM output."""
     violations: list[str] = []
 
-    for m in re.findall(r"\bSupplier\s+\d+\b", answer):
-        if m not in allowed_suppliers:
-            violations.append(f"hallucinated_supplier:{m}")
-    for m in re.findall(r"\bSKU\d+\b", answer):
-        if m not in allowed_skus:
-            violations.append(f"hallucinated_sku:{m}")
+    if not answer or not answer.strip():
+        return GuardResult(ok=False, value="", violations=["empty_output"])
 
-    if citations:
-        valid_pool = set(allowed_skus) | (allowed_sources or set()) | allowed_suppliers
-        for c in citations:
-            if not c:
-                continue
-            if c not in valid_pool:
-                violations.append(f"unverifiable_citation:{c}")
-
-    cleaned, pii_hits = _redact(answer)
+    # Redact PII that may have leaked into the answer
+    clean, pii_hits = _redact(answer)
     violations.extend(pii_hits)
 
-    return GuardResult(ok=True, value=cleaned, violations=violations)
+    # Hallucinated entity check (soft — logged but non-blocking)
+    if allowed_suppliers:
+        for m in re.finditer(r"\bSupplier\s+(\w+)\b", clean, re.IGNORECASE):
+            name = "Supplier %s" % m.group(1)
+            if name not in allowed_suppliers:
+                violations.append("hallucinated_entity:%s" % name)
+
+    if allowed_skus:
+        for m in re.finditer(r"\bSKU(\d+)\b", clean, re.IGNORECASE):
+            sku = "SKU%s" % m.group(1)
+            if sku not in allowed_skus:
+                violations.append("hallucinated_sku:%s" % sku)
+
+    # Only hard-fail on empty output (handled above); everything else is a warning.
+    return GuardResult(ok=True, value=clean, violations=violations)
 
 
 __all__ = ["GuardResult", "check_input", "check_output"]

@@ -93,7 +93,10 @@ def detect_intent(query: str) -> tuple[IntentLabel, float]:
     total = sum(scores.values())
     if total == 0:
         return "general_overview", 0.3
-    confidence = round(scores[best] / total, 2)
+    raw = scores[best] / total
+    # Single-keyword matches are too sparse to show 100% — cap at 0.75.
+    # Multi-keyword matches cap at 0.85 to avoid false certainty.
+    confidence = round(min(raw, 0.75), 2) if scores[best] == 1 else round(min(raw, 0.85), 2)
     return best, confidence
 
 
@@ -167,6 +170,16 @@ def compress_context(
             break
 
     return kept
+
+
+__all__ = [
+    "IntentLabel",
+    "PreprocessedQuery",
+    "rewrite",
+    "detect_intent",
+    "preprocess_query",
+    "compress_context",
+]
 
 
 __all__ = [

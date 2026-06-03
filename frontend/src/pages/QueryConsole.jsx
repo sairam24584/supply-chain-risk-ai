@@ -441,17 +441,10 @@ function AssistantMessage({ data, query }) {
             <p className="text-sm text-ink-800 leading-relaxed whitespace-pre-line">{data.answer}</p>
           ) : (
             <>
-              {/* Direct factual answer from the specialist agent */}
-              {directAnswer && (
-                <p className="text-sm text-ink-900 leading-relaxed font-medium mb-3 pb-3 border-b border-ink-100">
-                  {directAnswer}
-                </p>
-              )}
-
-              {/* Plan executive summary + risk score */}
+              {/* Executive summary + risk score — primary answer */}
               {plan && (
                 <div className="flex items-start justify-between gap-4 mb-3">
-                  <p className="text-sm text-ink-600 leading-relaxed flex-1 italic">
+                  <p className="text-sm text-ink-900 leading-relaxed flex-1 font-medium">
                     {plan.executive_summary}
                   </p>
                   {score !== null && (
@@ -465,9 +458,11 @@ function AssistantMessage({ data, query }) {
                 </div>
               )}
 
-              {/* Fallback: raw answer text */}
-              {!plan && !directAnswer && (
-                <p className="text-sm text-ink-800 leading-relaxed">{data.answer}</p>
+              {/* Fallback: specialist finding or raw answer */}
+              {!plan && (
+                <p className="text-sm text-ink-900 leading-relaxed font-medium">
+                  {directAnswer || data.answer}
+                </p>
               )}
 
               {/* Top actions */}

@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     # --- Models ---
     primary_llm_model: str = Field(default="gpt-4o-mini", alias="PRIMARY_LLM_MODEL")
-    fallback_llm_model: str = Field(default="llama-3.1-8b-instant", alias="FALLBACK_LLM_MODEL")
+    fallback_llm_model: str = Field(default="llama-3.3-70b-versatile", alias="FALLBACK_LLM_MODEL")
     embedding_model: str = Field(default="text-embedding-3-small", alias="EMBEDDING_MODEL")
     fallback_embedding_model: str = Field(
         default="sentence-transformers/all-MiniLM-L6-v2",
